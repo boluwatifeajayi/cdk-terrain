@@ -58,7 +58,9 @@ describe("runOutput", () => {
 
     await runOutput({
       ...baseConfig,
-      onOutputsRetrieved: (o) => (retrieved = o),
+      onOutputsRetrieved: (o) => {
+        retrieved = o;
+      },
       outputsPath: "/tmp/out.json",
     });
 

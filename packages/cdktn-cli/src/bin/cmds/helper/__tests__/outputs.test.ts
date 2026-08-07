@@ -29,7 +29,7 @@ afterEach(() => {
 function present(
   opts: Partial<Parameters<typeof presentOutputs>[0]> & { outputs: any },
 ) {
-  presentOutputs({
+  return presentOutputs({
     onOutputsRetrieved: () => {},
     renderFailureLabel: "Deploy succeeded",
     ...opts,
@@ -37,8 +37,8 @@ function present(
 }
 
 describe("presentOutputs", () => {
-  it("prints the outputs and nothing else when no outputs file was requested", () => {
-    present({ outputs });
+  it("prints the outputs and nothing else when no outputs file was requested", async () => {
+    await present({ outputs });
 
     expect(printed()).toEqual([table]);
     expect(reported()).toEqual([]);
@@ -47,21 +47,29 @@ describe("presentOutputs", () => {
   it.each([
     ["undefined", undefined],
     ["empty", {}],
-  ])("prints 'No outputs found.' for %s outputs", (_name, none) => {
-    present({ outputs: none });
+  ])("prints 'No outputs found.' for %s outputs", async (_name, none) => {
+    await present({ outputs: none });
 
     expect(printed()).toEqual(["No outputs found."]);
   });
 
-  it("hands the outputs to onOutputsRetrieved", () => {
+  it("hands the outputs to onOutputsRetrieved", async () => {
     let retrieved: unknown;
-    present({ outputs, onOutputsRetrieved: (o) => (retrieved = o) });
+    await present({
+      outputs,
+      onOutputsRetrieved: (o) => {
+        retrieved = o;
+      },
+    });
 
     expect(retrieved).toBe(outputs);
   });
 
-  it("reports a render failure on stderr instead of throwing", () => {
-    present({ outputs: unrenderable, renderFailureLabel: "Outputs fetched" });
+  it("reports a render failure on stderr instead of throwing", async () => {
+    await present({
+      outputs: unrenderable,
+      renderFailureLabel: "Outputs fetched",
+    });
 
     expect(printed()).toEqual([]);
     expect(reported()).toEqual([
@@ -75,12 +83,15 @@ describe("presentOutputs", () => {
     ["the outputs rendered", outputs, [table]],
     ["rendering failed", unrenderable, []],
     ["there are no outputs", {}, ["No outputs found."]],
-  ])("says where the outputs were written when %s", (_name, given, before) => {
-    present({ outputs: given, outputsPath: "/tmp/out.json" });
+  ])(
+    "says where the outputs were written when %s",
+    async (_name, given, before) => {
+      await present({ outputs: given, outputsPath: "/tmp/out.json" });
 
-    expect(printed()).toEqual([
-      ...before,
-      "The outputs have been written to /tmp/out.json",
-    ]);
-  });
+      expect(printed()).toEqual([
+        ...before,
+        "The outputs have been written to /tmp/out.json",
+      ]);
+    },
+  );
 });
