@@ -32,7 +32,7 @@ describe("getConstructIdsForOutputs", () => {
       { network_address_1A2B: output("::1") },
     );
 
-    expect(result).toEqual({ network: { address: output("::1") } });
+    expect(result).toStrictEqual({ network: { address: output("::1") } });
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -44,7 +44,7 @@ describe("getConstructIdsForOutputs", () => {
       { ipv6_address: output("::1") },
     );
 
-    expect(result).toEqual({ network: { ipv6: output("::1") } });
+    expect(result).toStrictEqual({ network: { ipv6: output("::1") } });
     expect(warnSpy.mock.calls).toEqual([
       [
         "1 output declared by the stack was not returned by terraform and is omitted: ipv4_address",
@@ -61,7 +61,7 @@ describe("getConstructIdsForOutputs", () => {
       { db_host: output("db.internal") },
     );
 
-    expect(result).toEqual({ db: { host: output("db.internal") } });
+    expect(result).toStrictEqual({ db: { host: output("db.internal") } });
     expect(warnSpy.mock.calls).toEqual([
       [
         "3 outputs declared by the stack were not returned by terraform and are omitted: missing_a, missing_b, missing_port",
@@ -77,7 +77,7 @@ describe("getConstructIdsForOutputs", () => {
       { ipv6_address: output("::1"), ipv4_address: null } as any,
     );
 
-    expect(result).toEqual({ network: { ipv6: output("::1") } });
+    expect(result).toStrictEqual({ network: { ipv6: output("::1") } });
     expect(warnSpy.mock.calls[0][0]).toContain("ipv4_address");
   });
 
