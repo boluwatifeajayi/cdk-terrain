@@ -24,26 +24,17 @@ function unpackTerraformOutput(
   outputs: NestedTerraformOutputs,
   includeSensitiveOutputs: boolean,
 ): Record<string, string> {
-  return Object.entries(outputs).reduce((acc, [key, entry]) => {
-    if (isTerraformOutput(entry)) {
-      return {
-        ...acc,
-        [key]:
-          !entry.sensitive || includeSensitiveOutputs ? entry.value : undefined,
-      };
-    }
-    // Defensive hardening: `entry` comes from externally-sourced data (terraform output metadata
-    // mapped by getConstructIdsForOutputs), and Object.entries() below would throw on a null or
-    // undefined entry. Omit the key rather than recurse into it or retain an undefined/null value -
-    // consistent with how getConstructIdsForOutputs omits unresolved outputs.
-    if (entry === null || typeof entry !== "object") {
-      return acc;
-    }
-    return {
+  return Object.entries(outputs).reduce(
+    (acc, [key, entry]) => ({
       ...acc,
-      [key]: unpackTerraformOutput(entry, includeSensitiveOutputs),
-    };
-  }, {});
+      [key]: isTerraformOutput(entry)
+        ? !entry.sensitive || includeSensitiveOutputs
+          ? entry.value
+          : undefined
+        : unpackTerraformOutput(entry, includeSensitiveOutputs),
+    }),
+    {},
+  );
 }
 
 export async function saveOutputs(
