@@ -1,5 +1,8 @@
 // Copyright (c) HashiCorp, Inc
 // SPDX-License-Identifier: MPL-2.0
+import stripAnsi from "strip-ansi";
+import { logger } from "@cdktn/commons";
+import { getConstructIdsForOutputs } from "@cdktn/cli-core/src/lib/output";
 import { PROMPT_NEEDS_TTY } from "../../helper/prompts";
 
 // Mock the prompts module so we can control what promptApprove / promptOverride throw.
@@ -22,13 +25,11 @@ jest.mock("../../helper/project-runner", () => ({
     mockRunCdktfProject(opts, cb),
 }));
 
-// Suppress noise from the StreamRenderer in unit tests, but keep a handle on `stop` so tests can
-// assert it always runs regardless of which path (fatal save error / non-fatal render error) is hit.
-const mockStreamStop = jest.fn();
+// Suppress noise from the StreamRenderer in unit tests.
 jest.mock("../../helper/tty-stream", () => ({
   StreamRenderer: jest.fn().mockImplementation(() => ({
     start: jest.fn(),
-    stop: mockStreamStop,
+    stop: jest.fn(),
     setBar: jest.fn(),
     clearBar: jest.fn(),
     appendLog: jest.fn(),
@@ -36,18 +37,6 @@ jest.mock("../../helper/tty-stream", () => ({
     resume: jest.fn(),
   })),
 }));
-
-// renderOutputs defaults to the real implementation; individual tests override it via
-// mockRenderOutputs.mockImplementationOnce(...) to simulate a rendering failure.
-const actualFormat = jest.requireActual("../../helper/format");
-const mockRenderOutputs = jest.fn(actualFormat.renderOutputs);
-jest.mock("../../helper/format", () => {
-  const actual = jest.requireActual("../../helper/format");
-  return {
-    ...actual,
-    renderOutputs: (...args: unknown[]) => mockRenderOutputs(...args),
-  };
-});
 
 import { runDeploy } from "../deploy";
 
@@ -62,9 +51,6 @@ beforeEach(() => {
   mockPromptApprove.mockReset();
   mockPromptOverride.mockReset();
   mockRunCdktfProject.mockReset();
-  mockStreamStop.mockReset();
-  mockRenderOutputs.mockReset();
-  mockRenderOutputs.mockImplementation(actualFormat.renderOutputs);
 });
 
 describe("runDeploy approval routing", () => {
@@ -162,40 +148,83 @@ describe("runDeploy approval routing", () => {
   });
 });
 
-describe("runDeploy output rendering is non-fatal", () => {
-  const outputsByConstructId = {
-    db: { host: { sensitive: false, type: "string", value: "db.example.com" } },
-  };
+describe("runDeploy outputs", () => {
+  const output = (value: string) => ({
+    sensitive: false,
+    type: "string",
+    value,
+  });
+  let logSpy: jest.SpyInstance;
+  let errSpy: jest.SpyInstance;
+  const printed = () => logSpy.mock.calls.map(([line]) => stripAnsi(line));
 
-  beforeEach(() => {
-    mockRunCdktfProject.mockImplementation(async () => ({
+  const deployed = (outputsByConstructId: unknown) =>
+    mockRunCdktfProject.mockResolvedValue({
       returnValue: undefined,
       project: { outputsByConstructId },
-    }));
+    });
+
+  beforeEach(() => {
+    logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("does not fail the deploy when rendering the outputs throws", async () => {
-    mockRenderOutputs.mockImplementationOnce(() => {
-      throw new Error("render boom");
-    });
-    const onOutputsRetrieved = jest.fn();
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-
-    await expect(
-      runDeploy({ ...baseConfig, onOutputsRetrieved } as any),
-    ).resolves.toBeUndefined();
-
-    expect(onOutputsRetrieved).toHaveBeenCalledWith(outputsByConstructId);
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "Deploy succeeded, but rendering the outputs failed",
-      ),
-    );
-    expect(mockStreamStop).toHaveBeenCalledTimes(1);
-
+  afterEach(() => {
     logSpy.mockRestore();
     errSpy.mockRestore();
+  });
+
+  it("presents the project's outputs by construct id", async () => {
+    const outputsByConstructId = { db: { host: output("db.example.com") } };
+    deployed(outputsByConstructId);
+    let retrieved: unknown;
+
+    await runDeploy({
+      ...baseConfig,
+      onOutputsRetrieved: (o: unknown) => (retrieved = o),
+      outputsPath: "/tmp/out.json",
+    } as any);
+
+    expect(retrieved).toBe(outputsByConstructId);
+    expect(printed()).toEqual([
+      "db\n  host = db.example.com",
+      "The outputs have been written to /tmp/out.json",
+    ]);
+  });
+
+  it("reports a render failure as following a successful deploy", async () => {
+    deployed({ db: { host: undefined } });
+
+    await runDeploy(baseConfig as any);
+
+    expect(errSpy.mock.calls).toEqual([
+      [expect.stringContaining("Deploy succeeded, but rendering the outputs")],
+    ]);
+  });
+
+  it("completes and prints the remaining outputs when terraform did not return a declared one", async () => {
+    const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => {});
+    deployed(
+      getConstructIdsForOutputs(
+        {
+          "//": {
+            outputs: {
+              network: { ipv6: "ipv6_address", ipv4: "ipv4_address" },
+              db: { host: "db_host" },
+            },
+          },
+        },
+        { ipv6_address: output("::1"), db_host: output("db.example.com") },
+      ),
+    );
+
+    await runDeploy(baseConfig as any);
+
+    expect(printed()).toEqual([
+      "network\n  ipv6 = ::1\ndb\n  host = db.example.com",
+    ]);
+    expect(errSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
 
