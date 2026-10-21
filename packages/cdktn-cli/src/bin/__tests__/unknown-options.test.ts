@@ -1,6 +1,7 @@
 // Copyright (c) HashiCorp, Inc
 // SPDX-License-Identifier: MPL-2.0
 import yargs from "yargs";
+import { Errors } from "@cdktn/commons";
 import { findUnknownOptions, rejectUnknownOptions } from "../unknown-options";
 
 const options = {
@@ -33,6 +34,39 @@ describe("findUnknownOptions", () => {
     const argv = { _: [], disableLogging: true, home: "/x", zzz: true };
     const env = { CDKTF_DISABLE_LOGGING: "true", CDKTF_HOME: "/x" };
     expect(findUnknownOptions(argv, options, env)).toEqual(["zzz"]);
+  });
+});
+
+describe("findUnknownOptions and the chalk color flags", () => {
+  it("always accepts --color and --no-color", () => {
+    const argv = { _: [], color: true, "no-color": true, noColor: true };
+    expect(findUnknownOptions(argv, options, {})).toEqual([]);
+  });
+});
+
+describe("rejectUnknownOptions", () => {
+  const argv = { _: ["deploy"], "auto-aprove": true, autoAprove: true };
+
+  it("prints the usage and sets the error scope before failing", () => {
+    const showHelp = jest.fn();
+    const setScope = jest.spyOn(Errors, "setScope");
+
+    expect(() =>
+      rejectUnknownOptions(argv, { getOptions: () => options, showHelp }),
+    ).toThrow("Unknown argument: auto-aprove");
+    expect(showHelp).toHaveBeenCalledTimes(1);
+    expect(setScope).toHaveBeenCalledWith("deploy");
+  });
+
+  it("does nothing for known options", () => {
+    const showHelp = jest.fn();
+    expect(() =>
+      rejectUnknownOptions(
+        { _: ["deploy"], app: "x" },
+        { getOptions: () => options, showHelp },
+      ),
+    ).not.toThrow();
+    expect(showHelp).not.toHaveBeenCalled();
   });
 });
 

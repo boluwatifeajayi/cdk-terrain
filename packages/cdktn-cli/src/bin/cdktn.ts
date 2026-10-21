@@ -82,6 +82,8 @@ const customCompletion = function (
 // for the possible overload (which supports falling back to default completions)
 // https://github.com/yargs/yargs/blob/d33e9972291406490cd8fdad0b3589be234e0f12/lib/completion.ts#L202
 
+let matchedCatchAllCommand = false;
+
 const cli = yargs
   .command(initCmd)
   .command(getCmd)
@@ -138,9 +140,19 @@ const cli = yargs
   })
   // Fail on unknown options instead of silently ignoring them (a typo like
   // `--skip-synth-typo` would otherwise still run a full synth)
-  .middleware(rejectUnknownOptions as unknown as yargs.MiddlewareFunction)
+  .middleware(((argv: Record<string, unknown>, y: yargs.Argv) => {
+    // The catch all command below prints the list of commands. Validating its
+    // options as well would blame a valid flag for a mistyped command name.
+    if (!matchedCatchAllCommand) {
+      rejectUnknownOptions(argv, y as never);
+    }
+  }) as unknown as yargs.MiddlewareFunction)
   .command({
     command: "*", // catches everything not previously matched
+    builder: (args) => {
+      matchedCatchAllCommand = true;
+      return args;
+    },
     handler: (argv) => {
       const cmd = argv._[0];
 
