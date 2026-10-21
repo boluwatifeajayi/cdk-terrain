@@ -11,6 +11,10 @@ export type KnownOptions = {
   envPrefix?: string;
 };
 
+// chalk (via supports-color) reads these straight from process.argv, so they
+// take effect on every command whether or not the command declares them.
+const COLOR_FLAGS = ["color", "no-color"];
+
 const camelCase = (str: string): string =>
   str.replace(/[-_]+([a-zA-Z0-9])/g, (_, c: string) => c.toUpperCase());
 
@@ -29,6 +33,10 @@ export function findUnknownOptions(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const known = new Set<string>(["_", "$0", "--"]);
+  for (const flag of COLOR_FLAGS) {
+    known.add(flag);
+    known.add(camelCase(flag));
+  }
   for (const key of Object.keys(options.key ?? {})) {
     known.add(key);
     known.add(camelCase(key));
@@ -70,12 +78,17 @@ export function findUnknownOptions(
 // Fails the command on unknown options. This is a middleware and not a yargs
 // `.check()`: a failing check is reported through `.fail()` but yargs still goes
 // on to run the command handler, so a mistyped flag would be ignored anyway.
+// Because throwing bypasses `.showHelpOnFail()`, the usage of the command is
+// printed here, the same way yargs' strict mode does it.
 export function rejectUnknownOptions(
   argv: Record<string, unknown>,
-  y: { getOptions(): KnownOptions },
+  y: { getOptions(): KnownOptions; showHelp(): unknown },
 ): void {
   const unknown = findUnknownOptions(argv, y.getOptions());
   if (unknown.length > 0) {
+    // the command handler never runs, so it can not set the scope itself
+    Errors.setScope(String((argv._ as unknown[] | undefined)?.[0] ?? "cdktn"));
+    y.showHelp();
     throw Errors.Usage(
       `Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`,
     );
