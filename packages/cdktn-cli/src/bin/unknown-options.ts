@@ -11,9 +11,12 @@ export type KnownOptions = {
   envPrefix?: string;
 };
 
-// chalk (via supports-color) reads these straight from process.argv, so they
-// take effect on every command whether or not the command declares them.
-const COLOR_FLAGS = ["color", "no-color"];
+// Options that are accepted by every command without being declared:
+// - chalk (via supports-color) reads --color and --no-color straight from process.argv, so they
+//   take effect on every command
+// - yargs adds --get-yargs-completions to the arguments of a shell completion request, and the
+//   completion of stack names runs the command's parser
+const ALWAYS_ACCEPTED_FLAGS = ["color", "no-color", "get-yargs-completions"];
 
 const camelCase = (str: string): string =>
   str.replace(/[-_]+([a-zA-Z0-9])/g, (_, c: string) => c.toUpperCase());
@@ -33,7 +36,7 @@ export function findUnknownOptions(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const known = new Set<string>(["_", "$0", "--"]);
-  for (const flag of COLOR_FLAGS) {
+  for (const flag of ALWAYS_ACCEPTED_FLAGS) {
     known.add(flag);
     known.add(camelCase(flag));
   }
