@@ -38,8 +38,15 @@ describe("findUnknownOptions", () => {
 });
 
 describe("findUnknownOptions and the chalk color flags", () => {
-  it("always accepts --color and --no-color", () => {
-    const argv = { _: [], color: true, "no-color": true, noColor: true };
+  it("always accepts --color, --no-color and the shell completion flag", () => {
+    const argv = {
+      _: [],
+      color: true,
+      "no-color": true,
+      noColor: true,
+      "get-yargs-completions": true,
+      getYargsCompletions: true,
+    };
     expect(findUnknownOptions(argv, options, {})).toEqual([]);
   });
 });

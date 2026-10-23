@@ -80,4 +80,32 @@ describeIfBundleExists("unknown options", () => {
       expect(result.stdout + result.stderr).not.toContain("Unknown argument");
     },
   );
+
+  it("still completes stack names for shell completion requests", async () => {
+    // completing stacks reads the manifest of a synthesized app
+    fs.mkdirSync(path.join(cwd, "cdktf.out"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, "cdktf.out/manifest.json"),
+      JSON.stringify({
+        version: "0.0.0",
+        stacks: {
+          first: {
+            name: "first",
+            constructPath: "first",
+            workingDirectory: "stacks/first",
+            synthesizedStackPath: "stacks/first/cdk.tf.json",
+            annotations: [],
+            dependencies: [],
+          },
+        },
+        backends: {},
+      }),
+    );
+
+    const result = await run(["--get-yargs-completions", "cdktn", "diff"]);
+
+    expect(result.stdout).toContain('first:target stack "first"');
+    expect(result.stdout + result.stderr).not.toContain("Unknown argument");
+    expect(result.exitCode).toBe(0);
+  });
 });
