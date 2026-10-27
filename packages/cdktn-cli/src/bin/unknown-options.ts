@@ -78,6 +78,75 @@ export function findUnknownOptions(
   return [...unknown.values()];
 }
 
+// How yargs describes the command it matched. These are yargs internals, there is no public API
+// for them, so every access is guarded.
+type YargsLike = {
+  getOptions(): KnownOptions;
+  showHelp(): unknown;
+  getInternalMethods?: () => {
+    getContext?: () => { commands?: string[] };
+    getCommandInstance?: () => { getCommands?: () => string[] };
+  };
+};
+
+/**
+ * Whether the arguments name a command (or a subcommand of a command group like `provider`) that
+ * does not exist, for example `cdktn deploi` or `cdktn provider bogus`. The options of such a
+ * command line can not be checked: they would be validated against the options of the parent, so
+ * a perfectly valid flag would be blamed for what is really a mistyped command. The user gets the
+ * message about the command instead.
+ */
+function hasUnmatchedCommand(
+  argv: Record<string, unknown>,
+  y: YargsLike,
+): boolean {
+  const internals = y.getInternalMethods?.();
+  if (!internals) {
+    // can not tell, so check the options rather than let a typo through
+    return false;
+  }
+  const matched = internals.getContext?.().commands ?? [];
+  const subcommands = internals.getCommandInstance?.().getCommands?.() ?? [];
+  const positionals = (argv._ as unknown[] | undefined) ?? [];
+  if (matched.length === 0) {
+    // nothing matched at the top level, the arguments hold the mistyped command
+    return positionals.length > 0;
+  }
+  // a command group matched, but what follows it is not one of its subcommands
+  return subcommands.length > 0 && positionals.length > matched.length;
+}
+
+const HINT =
+  "cdktn does not forward flags to terraform or tofu. Set them with the TF_CLI_ARGS_<command> environment variable instead.";
+
+/**
+ * A single dash followed by a long name, like `-target=x` or `-var-file=f`, is parsed by yargs as a
+ * group of short options (`t`, `r`, `g`, ...). Report the token as it was written instead, with the
+ * double dash spelling it most likely meant.
+ */
+function describeUnknown(unknown: string[], rawArgs: string[]): string[] {
+  const described: string[] = [];
+  const explained = new Set<string>();
+  for (const token of rawArgs) {
+    if (token === "--") {
+      break;
+    }
+    if (/^-[a-zA-Z][a-zA-Z0-9_-]+(=.*)?$/.test(token)) {
+      const [flag] = token.split("=");
+      for (const letter of flag.slice(1)) {
+        explained.add(letter);
+      }
+      if (unknown.some((key) => key.length === 1 && flag.includes(key))) {
+        described.push(`${token} (did you mean -${token}?)`);
+      }
+    }
+  }
+  return [
+    ...described,
+    ...unknown.filter((key) => !(key.length === 1 && explained.has(key))),
+  ];
+}
+
 // Fails the command on unknown options. This is a middleware and not a yargs
 // `.check()`: a failing check is reported through `.fail()` but yargs still goes
 // on to run the command handler, so a mistyped flag would be ignored anyway.
@@ -85,15 +154,20 @@ export function findUnknownOptions(
 // printed here, the same way yargs' strict mode does it.
 export function rejectUnknownOptions(
   argv: Record<string, unknown>,
-  y: { getOptions(): KnownOptions; showHelp(): unknown },
+  y: YargsLike,
+  rawArgs: string[] = process.argv.slice(2),
 ): void {
+  if (hasUnmatchedCommand(argv, y)) {
+    return;
+  }
   const unknown = findUnknownOptions(argv, y.getOptions());
   if (unknown.length > 0) {
     // the command handler never runs, so it can not set the scope itself
     Errors.setScope(String((argv._ as unknown[] | undefined)?.[0] ?? "cdktn"));
     y.showHelp();
+    const described = describeUnknown(unknown, rawArgs);
     throw Errors.Usage(
-      `Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`,
+      `Unknown argument${described.length > 1 ? "s" : ""}: ${described.join(", ")}\n${HINT}`,
     );
   }
 }

@@ -52,6 +52,8 @@ describe("findUnknownOptions and the chalk color flags", () => {
 });
 
 describe("rejectUnknownOptions", () => {
+  afterEach(() => jest.restoreAllMocks());
+
   const argv = { _: ["deploy"], "auto-aprove": true, autoAprove: true };
 
   it("prints the usage and sets the error scope before failing", () => {
@@ -74,6 +76,72 @@ describe("rejectUnknownOptions", () => {
       ),
     ).not.toThrow();
     expect(showHelp).not.toHaveBeenCalled();
+  });
+});
+
+describe("rejectUnknownOptions for a mistyped command", () => {
+  const yargsFor = (matched: string[], subcommands: string[]) => ({
+    getOptions: () => options,
+    showHelp: jest.fn(),
+    getInternalMethods: () => ({
+      getContext: () => ({ commands: matched }),
+      getCommandInstance: () => ({ getCommands: () => subcommands }),
+    }),
+  });
+
+  it("does not check the options when nothing matched at the top level", () => {
+    const y = yargsFor([], []);
+    expect(() =>
+      rejectUnknownOptions({ _: ["deploi"], bogus: true }, y, []),
+    ).not.toThrow();
+    expect(y.showHelp).not.toHaveBeenCalled();
+  });
+
+  it("does not check the options when a subcommand of a group does not exist", () => {
+    const y = yargsFor(["provider"], ["add", "list"]);
+    expect(() =>
+      rejectUnknownOptions({ _: ["provider", "bogus"], bogus: true }, y, []),
+    ).not.toThrow();
+  });
+
+  it("still checks the options of a group without a stray subcommand", () => {
+    const y = yargsFor(["provider"], ["add", "list"]);
+    expect(() =>
+      rejectUnknownOptions({ _: ["provider"], bogus: true }, y, []),
+    ).toThrow("Unknown argument: bogus");
+  });
+
+  it("still checks the options when an extra positional follows a plain command", () => {
+    const y = yargsFor(["diff"], []);
+    expect(() =>
+      rejectUnknownOptions({ _: ["diff", "extra"], bogus: true }, y, []),
+    ).toThrow("Unknown argument: bogus");
+  });
+});
+
+describe("rejectUnknownOptions messages", () => {
+  const y = { getOptions: () => options, showHelp: jest.fn() };
+
+  it("points to TF_CLI_ARGS_<command>", () => {
+    expect(() =>
+      rejectUnknownOptions({ _: ["synth"], bogus: true }, y, []),
+    ).toThrow("TF_CLI_ARGS_<command>");
+  });
+
+  it("reports a single dash long flag as written", () => {
+    const argv = { _: ["synth"], t: true, r: true, g: true, e: true };
+    expect(() =>
+      rejectUnknownOptions(argv, y, ["synth", "-target=aws_s3_bucket.a"]),
+    ).toThrow(
+      "Unknown argument: -target=aws_s3_bucket.a (did you mean --target=aws_s3_bucket.a?)",
+    );
+  });
+
+  it("keeps other unknown options next to the single dash flag", () => {
+    const argv = { _: ["synth"], t: true, r: true, bogus: true };
+    expect(() => rejectUnknownOptions(argv, y, ["-tr", "--bogus"])).toThrow(
+      /Unknown arguments: -tr \(did you mean --tr\?\), bogus/,
+    );
   });
 });
 
